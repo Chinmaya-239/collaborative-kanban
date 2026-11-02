@@ -54,7 +54,8 @@ check('Body tenantId is ignored (cannot create in other tenant)', (await call('P
 // ---- RBAC
 check('Member cannot create board', (await call('POST', '/api/boards', { token: arjunT, tenant: HYD, body: { name: 'nope' } })).status === 403);
 check('Tenant admin cannot create tenant', (await call('POST', '/api/tenants', { token: priyaT, body: { organizationId: priyaMe.organizations[0].id, name: 'Goa' } })).status === 403);
-check('Org admin can create tenant', (await call('POST', '/api/tenants', { token: rahulT, body: { organizationId: rahulMe.organizations.find((o) => o.name === 'ABC Technologies').id, name: 'Goa-' + Date.now() } })).status === 201);
+const goaRes = await call('POST', '/api/tenants', { token: rahulT, body: { organizationId: rahulMe.organizations.find((o) => o.name === 'ABC Technologies').id, name: 'Goa-' + Date.now() } });
+check('Org admin can create tenant', goaRes.status === 201);
 
 // ---- CRUD + versioning + concurrency
 const hydBoards = (await call('GET', '/api/boards', { token: priyaT, tenant: HYD })).data.boards;
@@ -80,7 +81,12 @@ const mv = { columnId: todo.id, index: 0, expectedVersion: task.version, clientO
 const r1 = await call('PATCH', `/api/tasks/${task.id}/move`, { token: priyaT, tenant: HYD, body: mv });
 const r2 = await call('PATCH', `/api/tasks/${task.id}/move`, { token: priyaT, tenant: HYD, body: mv });
 check('Retry with same clientOpId is idempotent', r1.status === 200 && r2.status === 200 && r1.data.task.version === r2.data.task.version);
-check('Member cannot delete a task they did not create', (await call('DELETE', `/api/tasks/${(hydBoard.tasks.find((t) => t.createdBy !== null && t.id !== task.id)).id}`, { token: arjunT, tenant: HYD })).status === 403);
+
+// Member cannot delete a task they did not create (task is created by Priya, so Arjun did not create it)
+const ownedByPriya = await call('POST', '/api/tasks', { token: priyaT, tenant: HYD, body: { boardId: hydBoard.id, columnId: todo.id, title: 'Smoke: owned by Priya' } });
+const delByMember = await call('DELETE', `/api/tasks/${ownedByPriya.data.task.id}`, { token: arjunT, tenant: HYD });
+check('Member cannot delete a task they did not create', ownedByPriya.status === 201 && delByMember.status === 403);
+await call('DELETE', `/api/tasks/${ownedByPriya.data.task.id}`, { token: priyaT, tenant: HYD });
 
 // ---- Real-time scoping
 const sPriya = await connect(priyaT);
@@ -102,6 +108,8 @@ check('Unauthenticated socket is rejected', await new Promise((res) => { const s
 
 // cleanup
 await call('DELETE', `/api/tasks/${task.id}`, { token: priyaT, tenant: HYD });
+const goaId = goaRes.data?.tenant?.id ?? goaRes.data?.id;
+if (goaId) await call('DELETE', `/api/tenants/${goaId}`, { token: rahulT });
 [sPriya, sSneha, sKiran].forEach((s) => s.close());
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
