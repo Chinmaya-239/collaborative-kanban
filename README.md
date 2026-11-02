@@ -29,20 +29,6 @@ A real-time task board where users across organizations and their branches (tena
 
 > The backend runs on a free Render instance that sleeps when idle. The first request after a pause can take 30 to 60 seconds. Open the site once and wait before testing.
 
-## Screenshots
-
-| Login | Organization and branch switcher |
-|---|---|
-| ![Login](screenshots/login.png) | ![Switcher](screenshots/switcher.png) |
-
-| Kanban board with presence | Task details |
-|---|---|
-| ![Board](screenshots/board.png) | ![Task panel](screenshots/task-panel.png) |
-
-| Activity log | Conflict resolution |
-|---|---|
-| ![Activity](screenshots/activity.png) | ![Conflict](screenshots/conflict.png) |
-
 ## 1. Overview
 
 Organizations (e.g. *ABC Technologies*) own branches called **tenants** (Hyderabad, Bangalore, Chennai). Each tenant has its own users, boards, columns, tasks and activity history. Employees collaborate on Kanban boards and see each other's changes live. A Hyderabad user can never read or receive anything from Bangalore.
@@ -57,7 +43,7 @@ Organizations (e.g. *ABC Technologies*) own branches called **tenants** (Hyderab
 | RBAC (Org Admin, Tenant Admin, Member) | `access.js` `requireRole`, §6 |
 | Real-time sync (WebSockets) | `realtime.js`, `docs/websocket-documentation.md` |
 | Concurrency handling | version column + compare-and-swap, §8 |
-| 8 tables, `tenant_id` on all business data | `schema.prisma`, `database/erd.md`, `docs/database-erd.png` |
+| 8 tables, `tenant_id` on all business data | `schema.prisma`, `database/erd.md` |
 | Efficient task ordering | fractional `position` (one-row writes), §8 |
 | Org selector + tenant switcher | `Navbar.jsx` (options come from `/auth/me`) |
 | Kanban + drag and drop, task panel | `Board.jsx` (dnd-kit), `TaskPanel.jsx` |
@@ -139,11 +125,7 @@ See `docs/websocket-documentation.md`. Writes use REST; the socket is an authori
 
 ## 10. Database
 
-Eight tables: `organizations`, `tenants`, `users`, `memberships`, `boards`, `columns`, `tasks`, `activity_logs`. All business data carries `tenant_id`. The Prisma schema is in `backend/prisma/schema.prisma` and the migration in `backend/prisma/migrations/`.
-
-![ER diagram](docs/database-erd.png)
-
-The editable diagram source is in `database/erd.md`.
+Eight tables: `organizations`, `tenants`, `users`, `memberships`, `boards`, `columns`, `tasks`, `activity_logs`. All business data carries `tenant_id`. The Prisma schema is in `backend/prisma/schema.prisma`, the migration in `backend/prisma/migrations/`, and the ER diagram (Mermaid) in `database/erd.md`.
 
 ## 11. Setup (local)
 
@@ -183,7 +165,7 @@ npm run dev                        # http://localhost:5173
 
 | Part | Host | Notes |
 |---|---|---|
-| Database | Neon | direct connection string with `sslmode=require` |
+| Database | Neon | connection string with `sslmode=require` |
 | Backend | Render (Web Service) | root `backend`; build `npm install && npx prisma generate && npx prisma migrate deploy`; start `npm start` |
 | Frontend | Vercel | root `frontend`; Vite preset; `VITE_API_URL` set to the Render URL; `vercel.json` rewrites all routes to `index.html` |
 
@@ -214,10 +196,10 @@ API_URL=https://kanban-api-azkn.onrender.com npm run smoke
 ### Manual
 
 - **Real-time sync:** two browsers on the same board; create, edit, move and delete tasks; both update without a refresh.
-- **Presence:** the online count and avatars update on connect and disconnect, and handle multiple tabs.
-- **Undo/redo:** Ctrl/⌘+Z and Ctrl/⌘+Shift+Z reverse moves and edits; undo is refused if another user changed the task meanwhile.
+- **Presence:** the online count and avatars update on connect and disconnect.
+- **Undo/redo:** Ctrl/⌘+Z and Ctrl/⌘+Shift+Z reverse moves and edits.
 - **Conflicts:** editing the same task in two windows triggers auto-merge (different fields) or a "keep mine / use theirs" choice (same field).
-- **Network recovery:** go offline in one window, change data in another, reconnect; the first window rejoins its room and refetches the board.
+- **Isolation:** Sneha (Bangalore) sees nothing from Hyderabad.
 
 ### Not tested
 
@@ -227,7 +209,7 @@ No load or performance testing has been done.
 
 - API reference: `docs/api-documentation.md`
 - WebSocket reference: `docs/websocket-documentation.md`
-- ER diagram: `docs/database-erd.png` (source in `database/erd.md`)
+- ER diagram source: `database/erd.md`
 
 ## 15. Known limitations
 
