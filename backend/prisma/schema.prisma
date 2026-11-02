@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ORG_ADMIN
+  TENANT_ADMIN
+  MEMBER
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// Parent company
+model Organization {
+  id          String       @id @default(uuid()) @db.Uuid
+  name        String       @db.VarChar(200)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  tenants     Tenant[]
+  memberships Membership[]
+  boards      Board[]
+
+  @@map("organizations")
+}
+
+// Branch / isolated workspace
+model Tenant {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  name           String        @db.VarChar(200)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberships    Membership[]
+  boards         Board[]
+  columns        BoardColumn[]
+  tasks          Task[]
+  activityLogs   ActivityLog[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("tenants")
+}
+
+model User {
+  id           String        @id @default(uuid()) @db.Uuid
+  name         String        @db.VarChar(200)
+  email        String        @unique @db.VarChar(255)
+  passwordHash String        @map("password_hash")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  memberships  Membership[]
+  boards       Board[]
+  assigned     Task[]        @relation("TaskAssignee")
+  created      Task[]        @relation("TaskCreator")
+  activityLogs ActivityLog[]
+
+  @@map("users")
+}
+
+// tenant_id NULL => organization-level membership (only ORG_ADMIN is valid there)
+// tenant_id set  => tenant-level membership (TENANT_ADMIN or MEMBER)
+model Membership {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  tenantId       String?      @map("tenant_id") @db.Uuid
+  role           Role
+  createdAt      DateTime     @default(now()) @map("created_at")
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tenant         Tenant?      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId, tenantId])
+  @@index([userId])
+  @@index([tenantId])
+  @@index([organizationId])
+  @@map("memberships")
+}
+
+model Board {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  tenantId       String        @map("tenant_id") @db.Uuid
+  name           String        @db.VarChar(200)
+  description    String?
+  createdBy      String?       @map("created_by") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at")
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creator        User?         @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  columns        BoardColumn[]
+  tasks          Task[]
+
+  @@index([tenantId])
+  @@map("boards")
+}
+
+model BoardColumn {
+  id       String @id @default(uuid()) @db.Uuid
+  boardId  String @map("board_id") @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String @db.VarChar(100)
+  position Int
+  board    Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tasks    Task[]
+
+  @@index([boardId])
+  @@index([tenantId])
+  @@map("columns")
+}
+
+model Task {
+  id          String      @id @default(uuid()) @db.Uuid
+  boardId     String      @map("board_id") @db.Uuid
+  columnId    String      @map("column_id") @db.Uuid
+  tenantId    String      @map("tenant_id") @db.Uuid
+  title       String      @db.VarChar(200)
+  description String?
+  assignedTo  String?     @map("assigned_to") @db.Uuid
+  createdBy   String?     @map("created_by") @db.Uuid
+  priority    Priority    @default(MEDIUM)
+  dueDate     DateTime?   @map("due_date")
+  // Fractional ranking: inserting between two cards writes ONE row (midpoint of neighbours).
+  position    Float
+  // Optimistic concurrency control: every successful write increments it.
+  version     Int         @default(1)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  board       Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  column      BoardColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignee    User?       @relation("TaskAssignee", fields: [assignedTo], references: [id], onDelete: SetNull)
+  creator     User?       @relation("TaskCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, boardId])
+  @@index([tenantId, columnId, position])
+  @@map("tasks")
+}
+
+model ActivityLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  entityType String   @map("entity_type") @db.VarChar(50)
+  entityId   String   @map("entity_id") @db.Uuid
+  action     String   @db.VarChar(50)
+  details    Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entityId])
+  @@map("activity_logs")
+}
